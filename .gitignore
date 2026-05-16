@@ -1,0 +1,118 @@
+# =========================
+# OS / Editors
+# =========================
+.DS_Store
+Thumbs.db
+
+.vscode/
+.idea/
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# =========================
+# Logs
+# =========================
+*.log
+logs/
+nohup.out
+
+# =========================
+# Environment / Secrets
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# Hadoop / Hive / Spark Runtime Data
+# =========================
+tmp/
+data/
+warehouse/
+metastore_db/
+
+# =========================
+# Docker Volumes / Runtime
+# =========================
+docker-data/
+volumes/
+
+# =========================
+# Spark
+# =========================
+spark/work/
+spark/logs/
+
+# =========================
+# NiFi
+# =========================
+nifi/lab_data/*
+!nifi/lab_data/.gitkeep
+
+nifi/extensions/*
+!nifi/extensions/.gitkeep
+
+nifi/drivers/*
+!nifi/drivers/.gitkeep
+
+# NiFi repositories if bind-mounted later
+flowfile_repository/
+content_repository/
+provenance_repository/
+database_repository/
+
+# =========================
+# Kafka
+# =========================
+kafka-data/
+*.kafka
+
+# =========================
+# PostgreSQL
+# =========================
+postgres-data/
+pgdata/
+
+# =========================
+# Hive Scratch
+# =========================
+scratch/
+tmp_hive/
+
+# =========================
+# Docker overrides
+# =========================
+docker-compose.override.yml
+
+# =========================
+# Temporary archives
+# =========================
+*.tar
+*.tar.gz
+*.zip
+
+# =========================
+# Build Artifacts
+# =========================
+build/
+dist/
+target/
+
+# =========================
+# IntelliJ / Java
+# =========================
+*.iml
+out/
+
+# =========================
+# Mac/Linux temp files
+# =========================
+*~
+*.swp
+*.swo
