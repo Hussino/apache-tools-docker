@@ -104,8 +104,7 @@ check_hdfs() {
 
 check_yarn() {
   wait_http http://localhost:8088/ &&
-  wait_http http://localhost:8042/ &&
-  $DC exec -T resourcemanager bash -lc 'yarn node -list 2>&1' | grep -Eq 'Total Nodes:[[:space:]]*1\b'
+  $DC exec -T resourcemanager bash -lc 'yarn node -list 2>&1' | grep -Eq 'Total Nodes:[[:space:]]*[1-9][0-9]*\b'
 }
 
 check_jobhistory() {
@@ -127,14 +126,13 @@ check_hive() {
 }
 
 check_spark() {
-  wait_http http://localhost:8080/ &&
-  wait_http http://localhost:8081/ &&
-  $DC exec -T spark-worker bash -lc 'test -w /opt/spark/work && test -w /opt/spark/logs' &&
-  $DC exec -T spark-master bash -lc '
+  $DC exec -T spark-client bash -lc '
     set -euo pipefail
     JAR=$(ls /opt/spark/examples/jars/spark-examples*.jar 2>/dev/null | head -n 1 || true)
     [ -n "$JAR" ] || { echo "spark examples jar not found"; exit 1; }
-    /opt/spark/bin/spark-submit --master spark://spark-master:7077 \
+    /opt/spark/bin/spark-submit \
+      --master yarn \
+      --deploy-mode client \
       --class org.apache.spark.examples.SparkPi \
       "$JAR" 1
   ' | grep -Ei 'Pi is roughly|Result is' >/dev/null
@@ -205,7 +203,6 @@ run_step "HDFS read/write" $DC exec -T namenode bash -lc '
 
 echo "== YARN =="
 run_step "YARN ResourceManager UI" wait_http http://localhost:8088/
-run_step "YARN NodeManager UI" wait_http http://localhost:8042/
 run_step "YARN node registration" check_yarn
 
 echo "== JobHistory =="
@@ -216,11 +213,8 @@ run_step "hive-metastore:9083" wait_exec_tcp hive-metastore 9083
 run_step "hive-server2:10000" wait_exec_tcp hive-server2 10000
 run_step "HiveServer2 query" check_hive
 
-echo "== Spark =="
-run_step "Spark master UI" wait_http http://localhost:8080/
-run_step "Spark worker UI" wait_http http://localhost:8081/
-run_step "Spark worker writable work/log dirs" $DC exec -T spark-worker bash -lc 'test -w /opt/spark/work && test -w /opt/spark/logs'
-run_step "Spark master/worker + job submission" check_spark
+echo "== Spark on YARN =="
+run_step "Spark job submission via YARN" check_spark
 
 echo "== Kafka =="
 run_step "Kafka broker API" wait_exec_regex kafka '/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 2>&1' 'kafka:9092'

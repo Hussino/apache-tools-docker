@@ -4,15 +4,12 @@ services:
   namenode-init:
     image: apache/hadoop:3.5.0
     user: root
-    command:
-      [
-        "bash",
-        "-c",
-        "chown -R hadoop:hadoop /hadoop/dfs/name && if [ ! -d /hadoop/dfs/name/current ]; then su -s /bin/bash hadoop -c '/opt/hadoop/bin/hdfs namenode -format -nonInteractive'; else echo 'NameNode already formatted'; fi"
-      ]
+    command: ["bash", "/usr/local/bin/init-config.sh"]
     volumes:
       - namenode_data:/hadoop/dfs/name
-      - ./hadoop/etc/hadoop:/opt/hadoop/etc/hadoop:ro
+      - hadoop_shared_conf:/shared_config
+      - ./hadoop/etc/hadoop:/tmp/custom_conf:ro
+      - ./hadoop/init-config.sh:/usr/local/bin/init-config.sh:ro
     networks: [bigdata-net]
 
   namenode:
@@ -38,45 +35,44 @@ services:
     volumes:
       - namenode_data:/hadoop/dfs/name
       - namenode_tmp:/tmp/hadoop-root
-      - ./hadoop/etc/hadoop:/opt/hadoop/etc/hadoop:ro
+      - hadoop_shared_conf:/opt/hadoop/etc/hadoop:ro
     networks: [bigdata-net]
 
   datanode-init:
     image: apache/hadoop:3.5.0
     user: root
     command:
-      [
-        "bash",
-        "-c",
-        "mkdir -p /hadoop/dfs/data && chown -R hadoop:hadoop /hadoop/dfs/data"
-      ]
+      - "bash"
+      - "-c"
+      - "mkdir -p /hadoop/dfs/data && chown -R hadoop:hadoop /hadoop/dfs/data"
     volumes:
-      - datanode_data:/hadoop/dfs/data
+      - workers_shared_data:/hadoop/dfs/data
     networks: [bigdata-net]
 
   datanode:
-    image: apache/hadoop:3.5.0
-    hostname: datanode
-    command: ["hdfs", "datanode"]
+    build:
+      context: ./hadoop-spark
+    entrypoint: ["/usr/local/bin/worker-entrypoint.sh"]
     user: hadoop
     depends_on:
       datanode-init:
         condition: service_completed_successfully
       namenode:
         condition: service_healthy
+      resourcemanager:
+        condition: service_healthy
     environment:
       HADOOP_CONF_DIR: /opt/hadoop/etc/hadoop
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "bash -lc 'exec 3<>/dev/tcp/127.0.0.1/9864'"]
+      test: ["CMD-SHELL", "bash -lc 'exec 3<>/dev/tcp/127.0.0.1/8042 && exec 3<>/dev/tcp/127.0.0.1/9864'"]
       interval: 20s
       timeout: 5s
       retries: 10
       start_period: 40s
     volumes:
-      - datanode_data:/hadoop/dfs/data
-      - datanode_tmp:/tmp/hadoop-root
-      - ./hadoop/etc/hadoop:/opt/hadoop/etc/hadoop:ro
+      - workers_shared_data:/hadoop/dfs/data
+      - hadoop_shared_conf:/opt/hadoop/etc/hadoop:ro
     networks: [bigdata-net]
 
   resourcemanager:
@@ -86,8 +82,6 @@ services:
     user: hadoop
     depends_on:
       namenode:
-        condition: service_healthy
-      datanode:
         condition: service_healthy
     environment:
       HADOOP_CONF_DIR: /opt/hadoop/etc/hadoop
@@ -102,31 +96,7 @@ services:
       - "8088:8088"
     volumes:
       - resourcemanager_tmp:/tmp/hadoop-root
-      - ./hadoop/etc/hadoop:/opt/hadoop/etc/hadoop:ro
-    networks: [bigdata-net]
-
-  nodemanager:
-    image: apache/hadoop:3.5.0
-    hostname: nodemanager
-    command: ["yarn", "nodemanager"]
-    user: hadoop
-    depends_on:
-      resourcemanager:
-        condition: service_healthy
-    environment:
-      HADOOP_CONF_DIR: /opt/hadoop/etc/hadoop
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "bash -lc 'exec 3<>/dev/tcp/127.0.0.1/8042'"]
-      interval: 20s
-      timeout: 5s
-      retries: 10
-      start_period: 40s
-    ports:
-      - "8042:8042"
-    volumes:
-      - nodemanager_local:/tmp/hadoop-root
-      - ./hadoop/etc/hadoop:/opt/hadoop/etc/hadoop:ro
+      - hadoop_shared_conf:/opt/hadoop/etc/hadoop:ro
     networks: [bigdata-net]
 
   historyserver:
@@ -150,7 +120,7 @@ services:
       - "19888:19888"
     volumes:
       - historyserver_data:/tmp/hadoop-root
-      - ./hadoop/etc/hadoop:/opt/hadoop/etc/hadoop:ro
+      - hadoop_shared_conf:/opt/hadoop/etc/hadoop:ro
     networks: [bigdata-net]
 
   postgres:
@@ -168,7 +138,7 @@ services:
       retries: 10
       start_period: 20s
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks: [bigdata-net]
@@ -206,7 +176,7 @@ services:
     volumes:
       - hive_warehouse:/opt/hive/data/warehouse
       - hive_scratch:/opt/hive/scratch
-      - ./hadoop/etc/hadoop:/opt/hadoop/etc/hadoop:ro
+      - hadoop_shared_conf:/opt/hadoop/etc/hadoop:ro
     networks: [bigdata-net]
 
   hive-server2:
@@ -245,64 +215,24 @@ services:
     volumes:
       - hive_warehouse:/opt/hive/data/warehouse
       - hive_scratch:/opt/hive/scratch
-      - ./hadoop/etc/hadoop:/opt/hadoop/etc/hadoop:ro
+      - hadoop_shared_conf:/opt/hadoop/etc/hadoop:ro
     networks: [bigdata-net]
 
-  spark-master:
-    image: apache/spark:4.1.1-scala2.13-java17-ubuntu
-    hostname: spark-master
-    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master", "-h", "spark-master"]
+  # Utility container for submitting Spark jobs to YARN.
+  # Stays idle; use: docker compose exec spark-client spark-submit --master yarn ...
+  spark-client:
+    build:
+      context: ./hadoop-spark
+    hostname: spark-client
+    entrypoint: ["bash", "-c", "tail -f /dev/null"]
+    user: hadoop
     depends_on:
-      namenode:
+      datanode:
         condition: service_healthy
-    ports:
-      - "7077:7077"
-      - "8080:8080"
     environment:
       HADOOP_CONF_DIR: /opt/hadoop/etc/hadoop
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "bash -lc 'exec 3<>/dev/tcp/127.0.0.1/8080'"]
-      interval: 20s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
     volumes:
-      - spark_master_work:/opt/spark/work
-      - spark_master_logs:/opt/spark/logs
-      - ./hadoop/etc/hadoop:/opt/hadoop/etc/hadoop:ro
-    networks: [bigdata-net]
-
-  spark-worker:
-    image: apache/spark:4.1.1-scala2.13-java17-ubuntu
-    hostname: spark-worker
-    user: root
-    command: >
-      bash -c "
-      chown -R spark:spark /opt/spark/work /opt/spark/logs &&
-      exec /opt/spark/bin/spark-class
-      org.apache.spark.deploy.worker.Worker
-      spark://spark-master:7077
-      "
-    depends_on:
-      spark-master:
-        condition: service_healthy
-    ports:
-      - "8081:8081"
-    environment:
-      HADOOP_CONF_DIR: /opt/hadoop/etc/hadoop
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "bash -lc 'exec 3<>/dev/tcp/127.0.0.1/8081'"]
-      interval: 20s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    volumes:
-      - spark_worker_work:/opt/spark/work
-      - spark_worker_logs:/opt/spark/logs
-      - ./hadoop/etc/hadoop:/opt/hadoop/etc/hadoop:ro
-      - ./spark/worker-entrypoint.sh:/opt/entrypoint/worker-entrypoint.sh:ro
+      - hadoop_shared_conf:/opt/hadoop/etc/hadoop:ro
     networks: [bigdata-net]
 
   nifi:
@@ -330,12 +260,11 @@ services:
       - nifi_content:/opt/nifi/nifi-current/content_repository
       - nifi_provenance:/opt/nifi/nifi-current/provenance_repository
       - nifi_state:/opt/nifi/nifi-current/state
-      # - nifi_nar:/opt/nifi/nifi-current/nar_extensions
       - nifi_python:/opt/nifi/nifi-current/python_extensions
       - ./nifi/drivers:/opt/nifi/nifi-current/drivers
       - ./nifi/lab_data:/lab_data
       - ./nifi/extensions:/opt/nifi/nifi-current/nar_extensions
-      - ./hadoop/etc/hadoop:/opt/hadoop/etc/hadoop:ro
+      - hadoop_shared_conf:/opt/hadoop/etc/hadoop:ro
     networks: [bigdata-net]
 
   kafka:
@@ -355,6 +284,11 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
 
       KAFKA_LOG_DIRS: /var/lib/kafka/data
+
+      # --- Only 1 Broker Setup ---
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "bash -lc 'exec 3<>/dev/tcp/127.0.0.1/9092'"]
@@ -393,20 +327,15 @@ networks:
     name: bigdata-net
 
 volumes:
+  hadoop_shared_conf:
   namenode_data:
   namenode_tmp:
-  datanode_data:
-  datanode_tmp:
+  workers_shared_data:
   resourcemanager_tmp:
-  nodemanager_local:
   historyserver_data:
   postgres_data:
   hive_warehouse:
   hive_scratch:
-  spark_master_work:
-  spark_master_logs:
-  spark_worker_work:
-  spark_worker_logs:
   nifi_logs:
   nifi_conf:
   nifi_db:

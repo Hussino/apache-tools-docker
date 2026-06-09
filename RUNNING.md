@@ -18,7 +18,13 @@ docker compose up -d --build
 Hadoop (HDFS + YARN) — recommended order for initial run
 
 ```bash
-docker compose up -d namenode-init datanode-init namenode datanode resourcemanager nodemanager historyserver
+docker compose up -d namenode-init datanode-init namenode datanode resourcemanager historyserver
+```
+
+You can scale the number of datanode/worker replicas (e.g., to 3) by running:
+
+```bash
+docker compose up -d --scale datanode=3
 ```
 
 HDFS only (NameNode + DataNode)
@@ -39,7 +45,7 @@ docker compose up -d namenode-init datanode-init namenode datanode nifi
 
 Hive (Postgres metastore + metastore + HiveServer2)
 
-Note: in this repository Hive is configured to integrate with Hadoop/HDFS. The metastore and HiveServer2 expect HDFS and Hadoop configuration from the `namenode`/`datanode` services. Start HDFS (NameNode/DataNode) along with Postgres and Hive:
+Note: in this repository Hive is configured to integrate with Hadoop/HDFS. The metastore and HiveServer2 expect HDFS and Hadoop configuration from the `namenode`/`datanode` services. Start HDFS (NameNode/datanode) along with Postgres and Hive:
 
 ```bash
 docker compose up -d namenode-init datanode-init namenode datanode postgres hive-metastore hive-server2
@@ -51,16 +57,16 @@ Running Hive without Hadoop (non-default)
 
 If you want to run Hive standalone without HDFS (use local filesystem for the warehouse), you'll need to change the Hive configuration in the `hive` build context: remove or override `HIVE_CUSTOM_CONF_DIR`, set `hive.metastore.warehouse.dir` to a local path (e.g. `/opt/hive/data/warehouse` inside the container), and adjust volumes accordingly. This setup is not provided by default in this repo — tell me if you want a ready-to-use compose variant for standalone Hive.
 
-Spark (master + worker) — with HDFS for configuration
+Spark (via YARN) — depends on HDFS and YARN
 
 ```bash
-docker compose up -d namenode datanode spark-master spark-worker
+docker compose up -d namenode datanode resourcemanager spark-client
 ```
 
 Spark + Hive
 
 ```bash
-docker compose up -d namenode-init datanode-init namenode datanode spark-master spark-worker postgres hive-metastore hive-server2
+docker compose up -d namenode-init datanode-init namenode datanode postgres hive-metastore hive-server2 spark-client
 ```
 
 Kafka only (broker + UI)
@@ -135,12 +141,12 @@ docker compose up -d postgres hive-metastore hive-server2
 
 Connect with Beeline/JDBC to `jdbc:hive2://localhost:10003` (HiveServer2 is remapped to port `10003` locally).
 
-Example: Spark (master + worker)
+Example: Spark (via YARN)
 
-Spark depends on HDFS for configuration; start NameNode/Datanode or ensure HADOOP_CONF_DIR is present:
+Spark depends on HDFS and YARN for execution; start HDFS, YARN and spark-client:
 
 ```bash
-docker compose up -d namenode datanode spark-master spark-worker
+docker compose up -d namenode datanode resourcemanager spark-client
 ```
 
 Example: Kafka + Kafka UI only
