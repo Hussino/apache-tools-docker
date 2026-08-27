@@ -4,7 +4,7 @@ This repository provides a multi-service big-data development environment assemb
 
 - Hadoop (HDFS, YARN, NodeManager, ResourceManager, HistoryServer)
 - Hive (metastore + HiveServer2) backed by PostgreSQL
-- Apache Spark (master + worker)
+- Apache Spark (on YARN)
 - Apache NiFi
 - Apache Kafka + Kafka UI
 
@@ -40,10 +40,9 @@ Useful UIs / endpoints (host:container-port)
 - NameNode: http://localhost:9870
 - HDFS RPC: 9000
 - YARN ResourceManager: http://localhost:8088
-- NodeManager: http://localhost:8042
+- NodeManager UIs: accessible via YARN ResourceManager → Nodes
 - JobHistory: http://localhost:19888
-- Spark Master UI: http://localhost:8080
-- Spark Worker UI: http://localhost:8081
+- Spark metrics in YARN ResourceManager UI: http://localhost:8088
 - HiveServer2 (JDBC): jdbc:hive2://localhost:10000 (mapped to 10003 locally)
 - NiFi (HTTPS): https://localhost:8444/nifi (mapped from 8443 inside container)
 - Kafka broker: localhost:9092
@@ -62,6 +61,15 @@ Notes and troubleshooting
 - Services create and use named volumes declared in the compose file. `docker compose down -v` removes them.
 - If you want to permanently remove all data, stop the compose and remove the volumes with `docker volume rm <volume>`.
 - When launching only subsets of services, start any initializer services listed in the compose file (services named `*-init`) used by HDFS.
+- **Dynamic Worker Scaling**: Scale worker nodes (which run HDFS DataNodes and YARN NodeManagers with Spark binaries) dynamically:
+  ```bash
+  docker compose up -d --scale datanode=3
+  ```
+  Storage directories are automatically isolated inside the shared volume using numbered slots (`datanode-1`, `datanode-2`, ...) that persist across restarts.
+- **Configuration Sync**: Configurations are shared via the `hadoop_shared_conf` volume. If you modify local files in `./hadoop/etc/hadoop/`, apply changes using:
+  ```bash
+  docker compose up -d --force-recreate namenode-init && docker compose restart
+  ```
 
 Contributing
 
